@@ -41,6 +41,7 @@
             border-radius: 20px;
             padding: 24px;
             margin-bottom: 24px;
+            /* 純色位移陰影 */
             box-shadow: 6px 6px 0px #000;
         }
         .card-purple { background-color: #F4CCFF; }
@@ -67,7 +68,7 @@
             border-radius: 10px;
             font-size: 16px;
             font-weight: bold;
-            box-sizing: border-box;
+            box-sizing: border-box; /* 避免超出邊界 */
         }
         input[type="file"] {
             background-color: #FFF;
@@ -98,7 +99,7 @@
             box-shadow: none;
         }
 
-        /* --- 新增：斑馬線進度條設計 --- */
+        /* --- 斑馬線進度條設計 --- */
         #loading-container {
             display: none; /* 預設隱藏 */
             margin-top: 20px;
@@ -143,15 +144,17 @@
     <h1>Generated<br>Captions</h1>
     <p class="subtitle">Transform audio to text instantly.</p>
 
-    <!-- 加入 onsubmit 事件來觸發 JavaScript -->
-    <form id="upload-form" action="/process" method="POST" enctype="multipart/form-data" onsubmit="showLoading()">
+    <!-- 改用 onsubmit 觸發 JS 邏輯，並拿掉傳統的 action 與 method -->
+    <form id="upload-form" onsubmit="handleFormSubmit(event)">
         
+        <!-- API 卡片 -->
         <div class="neo-card card-purple">
             <h2>API Keys</h2>
             <label>Gemini API</label>
             <input type="text" name="api_key" placeholder="AIzaSy..." required>
         </div>
 
+        <!-- 檔案卡片 -->
         <div class="neo-card card-yellow">
             <h2>Files</h2>
             <label>Video / Audio File</label>
@@ -161,7 +164,7 @@
         <!-- 提交按鈕 -->
         <button type="submit" id="submit-btn" class="submit-btn">PROCESS SUBTITLES</button>
         
-        <!-- 新增：隱藏的進度條區塊 -->
+        <!-- 隱藏的進度條區塊 -->
         <div id="loading-container">
             <div class="progress-box">
                 <div class="progress-bar"></div>
@@ -172,16 +175,66 @@
     </form>
 </div>
 
-<!-- --- 新增：前端控制邏輯 --- -->
+<!-- --- 前端 Fetch 邏輯 --- -->
 <script>
-    function showLoading() {
-        // 抓取按鈕與進度條元素
+    async function handleFormSubmit(event) {
+        // 1. 阻止表單傳統的「換頁」行為
+        event.preventDefault(); 
+
+        const form = document.getElementById('upload-form');
         const btn = document.getElementById('submit-btn');
         const loadingBox = document.getElementById('loading-container');
 
-        // 點擊後隱藏按鈕，顯示動畫進度條，防止使用者重複點擊或誤關
+        // 2. 點擊後：隱藏按鈕，顯示進度條動畫
         btn.style.display = 'none';
         loadingBox.style.display = 'block';
+
+        try {
+            // 3. 在背景將資料打包送給 Flask 伺服器
+            const formData = new FormData(form);
+            const response = await fetch('/process', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                // 如果發生錯誤 (例如密碼錯、沒檔案)，印出錯誤訊息
+                const errorText = await response.text();
+                alert('發生錯誤：' + errorText);
+            } else {
+                // 4. 成功收到字幕！將回傳的檔案轉換為可下載的 Blob
+                const blob = await response.blob();
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+
+                // 嘗試從後端抓取檔名，抓不到就預設叫 subtitle.srt
+                let filename = "subtitle.srt";
+                const disposition = response.headers.get('content-disposition');
+                if (disposition && disposition.indexOf('filename=') !== -1) {
+                    const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+                    if (matches != null && matches[1]) {
+                        filename = matches[1].replace(/['"]/g, '');
+                    }
+                }
+
+                // 觸發隱藏下載動作
+                a.href = downloadUrl;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove(); 
+                window.URL.revokeObjectURL(downloadUrl); // 釋放記憶體
+            }
+        } catch (error) {
+            alert('網路連線或伺服器發生異常，請重試！');
+        } finally {
+            // 5. 最重要的一步：無論成功或失敗，都把動畫收起來，按鈕還原！
+            loadingBox.style.display = 'none';
+            btn.style.display = 'block';
+            
+            // 下載完後將表單自動清空
+            form.reset(); 
+        }
     }
 </script>
 
