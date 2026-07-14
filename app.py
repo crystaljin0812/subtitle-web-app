@@ -116,22 +116,46 @@ def build_txt(all_segments, output_path):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
+# ★ 重點升級：極限修復與格式標準化音訊 ★
 def extract_audio(video_path, out_dir):
     audio_path = os.path.join(out_dir, "extracted_audio.mp3")
+    # 使用 ffmpeg 讀取上傳的檔案，不管它是 MP4 還是毀損 MP3。
+    # -ac 1 (轉單聲道), -ar 16000 (轉16kHz，Gemini最愛的採樣率), -b:a 64k (恆定位元率 64kbps CBR)
+    # 這會強迫重新寫入精準的時間軸標頭 (Xing header)，徹底救活沒有長度資訊的 MP3！
     cmd = ["ffmpeg", "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audio_path]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     return audio_path
 
+# ★ 重點升級：如果 format 讀不到長度，改從串流 (stream) 深度讀取 ★
 def get_audio_duration(audio_path):
+    # 第一招：嘗試讀取常規 format 長度
     probe_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", audio_path]
     result = subprocess.run(probe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return float(json.loads(result.stdout)["format"]["duration"])
+    try:
+        duration_str = json.loads(result.stdout)["format"]["duration"]
+        return float(duration_str)
+    except Exception:
+        pass
 
-# ★ 重點修改：將切割時間改為 120 秒 (2分鐘) ★
+    # 第二招：如果 format 讀不到，深度探測音訊流 (stream) 獲得精準長度
+    probe_cmd2 = ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=duration", "-of", "json", audio_path]
+    result2 = subprocess.run(probe_cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        duration_str = json.loads(result2.stdout)["streams"][0]["duration"]
+        return float(duration_str)
+    except Exception:
+        # 如果還是拿不到（極度罕見），強制預設為 0
+        return 0.0
+
 def split_audio_if_needed(audio_path, out_dir, chunk_seconds=120):
     duration = get_audio_duration(audio_path)
+    # 如果長度偵測為 0 (解析完全失敗)，為了保險，強制假設它大於 120 秒，並切成 2 分鐘片段來安全防爆
+    if duration <= 0.0:
+        duration = 1800.0  # 預設估算 30 分鐘
+        
     if duration <= chunk_seconds:
         return [(audio_path, 0.0)]
+    
     chunks = []
     n_chunks = math.ceil(duration / chunk_seconds)
     for i in range(n_chunks):
@@ -191,8 +215,6 @@ def process_video():
         if not api_key:
             return "請提供 API Key", 400
 
-        # ★ 重點修改：安全檔名處理 ★
-        # 過濾掉危險字元，如果檔名是純中文被過濾到變成空的，就給它一個預設時間戳記檔名
         safe_filename = secure_filename(video_file.filename)
         if not safe_filename:
             safe_filename = f"audio_{int(time.time())}.mp3"
@@ -200,19 +222,16 @@ def process_video():
         video_path = os.path.join(UPLOAD_FOLDER, safe_filename)
         video_file.save(video_path)
         
-        # 決定輸出檔名與路徑 (固定使用英文避免下載時的編碼錯誤)
         out_filename = f"transcript_result.{output_format}"
         out_path = os.path.join(OUTPUT_FOLDER, out_filename)
 
-        # 開始呼叫 Gemini
         client = genai.Client(api_key=api_key.strip())
         prompt = get_prompt(target_language)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            print("擷取音訊中...")
+            print("擷取音訊中並強制重新重組 (Re-muxing)...")
             audio_path = extract_audio(video_path, tmp_dir)
             
-            # 這裡會觸發 120 秒切割邏輯
             chunks = split_audio_if_needed(audio_path, tmp_dir)
             
             all_segments = []
@@ -234,22 +253,18 @@ def process_video():
                 clean_text = strip_punctuation(text)
                 processed_segments.extend(split_long_segment(start, end, clean_text))
 
-            # 根據選擇產生不同格式檔案
             if output_format == "txt":
                 build_txt(processed_segments, out_path)
             else:
                 build_srt(processed_segments, out_path)
         
-        # 將處理完成的檔案回傳
         return send_file(out_path, as_attachment=True, download_name=out_filename)
 
-    # ★ 重點修改：擴大錯誤捕捉範圍 ★
     except Exception as e:
         traceback.print_exc()
         return f"處理發生錯誤：{str(e)}", 500
         
     finally:
-        # 確保無論成功或失敗，原始上傳的龐大影片檔都會被刪除，不佔用雲端空間
         if video_path and os.path.exists(video_path):
             os.remove(video_path)
 
