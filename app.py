@@ -4,7 +4,9 @@ import math
 import time
 import subprocess
 import tempfile
-from flask import Flask, render_template, request, send_file
+import traceback
+from flask import Flask, render_template, request, send_file, redirect, url_for
+from werkzeug.utils import secure_filename
 
 try:
     from google import genai
@@ -104,13 +106,11 @@ def build_srt(all_segments, output_path):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-# 這裡修改了 build_txt 函式，讓它也能帶有時間軸
 def build_txt(all_segments, output_path):
     lines = []
     for start, end, text in all_segments:
         text = (text or "").strip()
         if text:
-            # 將時間軸與文字組合，格式例如：[00:00:05,000 --> 00:00:08,000] 這是一段字幕
             timestamp = f"[{format_srt_timestamp(start)} --> {format_srt_timestamp(end)}]"
             lines.append(f"{timestamp} {text}")
     with open(output_path, "w", encoding="utf-8") as f:
@@ -127,7 +127,8 @@ def get_audio_duration(audio_path):
     result = subprocess.run(probe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return float(json.loads(result.stdout)["format"]["duration"])
 
-def split_audio_if_needed(audio_path, out_dir, chunk_seconds=1800):
+# ★ 重點修改：將切割時間改為 120 秒 (2分鐘) ★
+def split_audio_if_needed(audio_path, out_dir, chunk_seconds=120):
     duration = get_audio_duration(audio_path)
     if duration <= chunk_seconds:
         return [(audio_path, 0.0)]
@@ -172,39 +173,46 @@ def index():
 @app.route("/process", methods=["GET", "POST"])
 def process_video():
     if request.method == "GET":
-        from flask import redirect, url_for
         return redirect(url_for("index"))
 
-    if genai is None:
-        return "伺服器未安裝 google-genai 套件", 500
-
-    api_key = request.form.get("api_key")
-    video_file = request.files.get("video_file")
-    target_language = request.form.get("target_language", "繁體中文")
-    output_format = request.form.get("output_format", "srt")
-    model_name = "gemini-3.5-flash"
-    
-    if not video_file or video_file.filename == '':
-        return "請上傳影片檔案", 400
-    if not api_key:
-        return "請提供 API Key", 400
-
-    video_filename = video_file.filename
-    video_path = os.path.join(UPLOAD_FOLDER, video_filename)
-    video_file.save(video_path)
-    
-    # 決定輸出檔名與路徑
-    base_name = os.path.splitext(video_filename)[0]
-    out_filename = f"{base_name}.{output_format}"
-    out_path = os.path.join(OUTPUT_FOLDER, out_filename)
-
+    video_path = None
     try:
+        if genai is None:
+            return "伺服器未安裝 google-genai 套件", 500
+
+        api_key = request.form.get("api_key")
+        video_file = request.files.get("video_file")
+        target_language = request.form.get("target_language", "繁體中文")
+        output_format = request.form.get("output_format", "srt")
+        model_name = "gemini-3.5-flash"
+        
+        if not video_file or video_file.filename == '':
+            return "請上傳影片檔案", 400
+        if not api_key:
+            return "請提供 API Key", 400
+
+        # ★ 重點修改：安全檔名處理 ★
+        # 過濾掉危險字元，如果檔名是純中文被過濾到變成空的，就給它一個預設時間戳記檔名
+        safe_filename = secure_filename(video_file.filename)
+        if not safe_filename:
+            safe_filename = f"audio_{int(time.time())}.mp3"
+
+        video_path = os.path.join(UPLOAD_FOLDER, safe_filename)
+        video_file.save(video_path)
+        
+        # 決定輸出檔名與路徑 (固定使用英文避免下載時的編碼錯誤)
+        out_filename = f"transcript_result.{output_format}"
+        out_path = os.path.join(OUTPUT_FOLDER, out_filename)
+
+        # 開始呼叫 Gemini
         client = genai.Client(api_key=api_key.strip())
         prompt = get_prompt(target_language)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             print("擷取音訊中...")
             audio_path = extract_audio(video_path, tmp_dir)
+            
+            # 這裡會觸發 120 秒切割邏輯
             chunks = split_audio_if_needed(audio_path, tmp_dir)
             
             all_segments = []
@@ -231,14 +239,19 @@ def process_video():
                 build_txt(processed_segments, out_path)
             else:
                 build_srt(processed_segments, out_path)
-            
-    except Exception as e:
-        return f"處理發生錯誤：{str(e)}", 500
-    finally:
-        if os.path.exists(video_path):
-            os.remove(video_path)
+        
+        # 將處理完成的檔案回傳
+        return send_file(out_path, as_attachment=True, download_name=out_filename)
 
-    return send_file(out_path, as_attachment=True, download_name=out_filename)
+    # ★ 重點修改：擴大錯誤捕捉範圍 ★
+    except Exception as e:
+        traceback.print_exc()
+        return f"處理發生錯誤：{str(e)}", 500
+        
+    finally:
+        # 確保無論成功或失敗，原始上傳的龐大影片檔都會被刪除，不佔用雲端空間
+        if video_path and os.path.exists(video_path):
+            os.remove(video_path)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", debug=True, port=5000)
