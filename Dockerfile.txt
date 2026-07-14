@@ -1,0 +1,18 @@
+# 使用輕量版的 Python 3 作為基礎環境
+FROM python:3.9-slim
+
+# 安裝影片處理工具 ffmpeg
+RUN apt-get update && apt-get install -y ffmpeg
+
+# 設定工作目錄
+WORKDIR /app
+
+# 將需求清單複製進去並安裝 Python 套件
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# 將你的程式碼全部複製進去
+COPY . .
+
+# 啟動伺服器 (將超時時間設為 10 分鐘，避免 Gemini 處理太久斷線)
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:10000", "--timeout", "600"]

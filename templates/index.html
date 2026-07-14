@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subtitle Gen - Web</title>
+    <style>
+        /* 基礎設定 */
+        body {
+            background-color: #FDFBF7;
+            font-family: 'Helvetica', 'Arial Black', sans-serif;
+            display: flex;
+            justify-content: center;
+            padding: 40px 20px;
+            margin: 0;
+            color: #000;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+        }
+
+        /* 標題設計 */
+        h1 {
+            font-size: 42px;
+            font-weight: 900;
+            line-height: 1.1;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+        p.subtitle {
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 30px;
+        }
+
+        /* 大圓角黑框卡片 */
+        .neo-card {
+            border: 4px solid #000;
+            border-radius: 20px;
+            padding: 24px;
+            margin-bottom: 24px;
+            /* 純色位移陰影 */
+            box-shadow: 6px 6px 0px #000;
+        }
+        .card-purple { background-color: #F4CCFF; }
+        .card-yellow { background-color: #FFEB84; }
+
+        .neo-card h2 {
+            margin-top: 0;
+            font-size: 20px;
+            font-weight: 900;
+            text-transform: uppercase;
+        }
+
+        /* 輸入框設計 */
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            margin-top: 16px;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 3px solid #000;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            box-sizing: border-box; /* 避免超出邊界 */
+        }
+        input[type="file"] {
+            background-color: #FFF;
+            cursor: pointer;
+        }
+
+        /* 黑膠囊按鈕 */
+        .submit-btn {
+            width: 100%;
+            background-color: #000;
+            color: #AEEBCB;
+            border: none;
+            border-radius: 50px;
+            padding: 20px;
+            font-size: 20px;
+            font-weight: 900;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: all 0.2s;
+        }
+        .submit-btn:hover {
+            background-color: #333;
+            transform: translate(-2px, -2px);
+            box-shadow: 4px 4px 0px #AEEBCB;
+        }
+        .submit-btn:active {
+            transform: translate(2px, 2px);
+            box-shadow: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Generated<br>Captions</h1>
+    <p class="subtitle">Transform audio to text instantly.</p>
+
+    <!-- 將資料傳送給 Flask 的表單 -->
+    <form action="/process" method="POST" enctype="multipart/form-data">
+        
+        <!-- API 卡片 -->
+        <div class="neo-card card-purple">
+            <h2>API Keys</h2>
+            <label>Gemini API</label>
+            <input type="text" name="api_key" placeholder="AIzaSy..." required>
+        </div>
+
+        <!-- 檔案卡片 -->
+        <div class="neo-card card-yellow">
+            <h2>Files</h2>
+            <label>Video / Audio File</label>
+            <input type="file" name="video_file" accept="video/*,audio/*" required>
+        </div>
+
+        <!-- 提交按鈕 -->
+        <button type="submit" class="submit-btn">PROCESS SUBTITLES</button>
+        
+    </form>
+</div>
+
+</body>
+</html>
