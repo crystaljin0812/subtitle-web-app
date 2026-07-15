@@ -214,7 +214,7 @@ def run_job(job_id, video_path, api_key, target_language, output_format):
     try:
         set_job(job_id, status="processing", progress=2, message="正在從影片擷取音訊...")
 
-        model_name = "gemini-1.5-flash" # 確保使用的是 1.5 版本
+        model_name = "gemini-3.5-flash" # 確保使用的是 1.5 版本
         client = genai.Client(api_key=api_key.strip())
         prompt = get_prompt(target_language)
 
