@@ -23,11 +23,13 @@
   }
   .sub { color: #555; font-weight: 600; margin: 0 0 24px; }
 
+  /* ===== 硬邊位移陰影（neo-brutalism 招牌手法）===== */
   .card {
     border: 4px solid #000;
     border-radius: 24px;
     padding: 18px 20px 20px;
-    margin-bottom: 20px;
+    margin-bottom: 22px;
+    box-shadow: 7px 7px 0 #000;
   }
   .card.purple { background: #F4CCFF; }
   .card.yellow { background: #FFEB84; }
@@ -51,6 +53,7 @@
     font-size: 14px;
     font-weight: 600;
     background: #fff;
+    box-shadow: 3px 3px 0 #000;
   }
   input[type="file"] {
     width: 100%;
@@ -61,7 +64,7 @@
 
   button {
     width: 100%;
-    border: none;
+    border: 4px solid #000;
     border-radius: 999px;
     background: #000;
     color: #AEEBCB;
@@ -69,6 +72,12 @@
     font-size: 17px;
     padding: 18px 0;
     cursor: pointer;
+    box-shadow: 7px 7px 0 #FFEB84;
+    transition: transform 0.08s ease, box-shadow 0.08s ease;
+  }
+  button:active:not(:disabled) {
+    transform: translate(4px, 4px);
+    box-shadow: 3px 3px 0 #FFEB84;
   }
   button:disabled { opacity: 0.6; cursor: not-allowed; }
 
@@ -81,6 +90,7 @@
     border-radius: 999px;
     background: #fff;
     padding: 3px;
+    box-shadow: 4px 4px 0 #000;
   }
   .progress-inner {
     height: 14px;
@@ -104,6 +114,7 @@
     padding: 12px 14px;
     font-size: 13px;
     font-weight: 700;
+    box-shadow: 5px 5px 0 #000;
   }
   .warning-box {
     display: none;
@@ -114,6 +125,7 @@
     padding: 10px 14px;
     font-size: 12px;
     font-weight: 700;
+    box-shadow: 4px 4px 0 #000;
   }
   .done-box {
     display: none;
@@ -128,6 +140,15 @@
     font-weight: 800;
     padding: 12px 24px;
     border-radius: 999px;
+    border: 4px solid #000;
+    box-shadow: 6px 6px 0 #AEEBCB;
+  }
+  .hint {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #777;
+    font-weight: 600;
+    text-align: center;
   }
 </style>
 </head>
@@ -176,6 +197,7 @@
       <div class="progress-inner" id="progressBar"></div>
     </div>
     <p class="progress-label" id="progressLabel">準備中...</p>
+    <p class="hint">處理是在伺服器背景進行的，你可以放心切換到別的分頁或別的 App，等等再回來看這頁就好（請不要整個關掉分頁，不然會錯過自動下載）。</p>
   </div>
 
   <div class="warning-box" id="warningBox"></div>
@@ -183,6 +205,7 @@
 
   <div class="done-box" id="doneBox">
     <a id="downloadLink" href="#">下載字幕檔</a>
+    <p class="hint" id="autoDownloadHint">已自動幫你開始下載，如果沒反應可以點上面這個按鈕。</p>
   </div>
 </div>
 
@@ -198,6 +221,7 @@ const doneBox = document.getElementById('doneBox');
 const downloadLink = document.getElementById('downloadLink');
 
 let pollTimer = null;
+let autoDownloaded = false;
 
 function resetUI() {
   errorBox.style.display = 'none';
@@ -206,6 +230,7 @@ function resetUI() {
   progressWrap.style.display = 'block';
   progressBar.style.width = '0%';
   progressLabel.textContent = '準備中...';
+  autoDownloaded = false;
 }
 
 function showError(msg) {
@@ -217,7 +242,26 @@ function showError(msg) {
   submitBtn.textContent = 'PROCESS SUBTITLES';
 }
 
+function triggerAutoDownload(jobId) {
+  if (autoDownloaded) return;
+  autoDownloaded = true;
+  const url = `/download/${jobId}`;
+  downloadLink.href = url;
+  // 用隱藏連結自動觸發下載，不需要使用者手動點擊
+  const a = document.createElement('a');
+  a.href = url;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 function pollStatus(jobId) {
+  // 把工作編號記在網址上，這樣就算把分頁關掉，只要之後重新打開同一個網址
+  // （例如從瀏覽紀錄點回來），頁面還是能繼續顯示這個工作的進度或下載連結。
+  const newUrl = `${window.location.pathname}?job=${jobId}`;
+  window.history.replaceState({ jobId }, '', newUrl);
+
   pollTimer = setInterval(async () => {
     try {
       const res = await fetch(`/status/${jobId}`);
@@ -241,9 +285,9 @@ function pollStatus(jobId) {
         clearInterval(pollTimer);
         progressWrap.style.display = 'none';
         doneBox.style.display = 'block';
-        downloadLink.href = `/download/${jobId}`;
         submitBtn.disabled = false;
         submitBtn.textContent = 'PROCESS SUBTITLES';
+        triggerAutoDownload(jobId);
       } else if (data.status === 'error') {
         showError(data.message || '處理失敗，請再試一次。');
       }
@@ -267,12 +311,29 @@ form.addEventListener('submit', async (e) => {
 
     if (!res.ok) {
       showError(data.error || '送出失敗，請再試一次。');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'PROCESS SUBTITLES';
       return;
     }
 
     pollStatus(data.job_id);
   } catch (err) {
     showError('送出失敗，請確認網路狀況後再試一次。');
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'PROCESS SUBTITLES';
+  }
+});
+
+// 如果網址上已經帶有 job 參數（例如使用者重新打開先前的分頁），
+// 自動接續顯示該工作的狀態，不用重新上傳一次。
+window.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(window.location.search);
+  const existingJob = params.get('job');
+  if (existingJob) {
+    resetUI();
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'PROCESSING...';
+    pollStatus(existingJob);
   }
 });
 </script>
