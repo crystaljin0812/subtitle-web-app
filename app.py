@@ -27,15 +27,17 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # ---------- 檔案大小限制 ----------
-# Render 免費方案只有 512MB 記憶體，先設一個安全上限（可依實際方案調整）。
-# 超過會直接回傳 413，而不是讓伺服器悶著頭處理到記憶體爆掉。
-app.config['MAX_CONTENT_LENGTH'] = 300 * 1024 * 1024  # 300MB
+# 現在瀏覽器端會先用 ffmpeg.wasm 把影片壓縮成小體積音訊再上傳，
+# 正常情況下傳到這裡的檔案應該都只有幾 MB～幾十 MB。
+# 這個上限主要是「備援保護」：當使用者瀏覽器不支援/壓縮失敗、退回直接上傳原始影片時，
+# 避免真的誇張大的檔案把 Render 免費方案 512MB 記憶體塞爆。
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB
 
 
 @app.errorhandler(413)
 def file_too_large(e):
     return jsonify({
-        "error": "檔案太大了（上限 300MB）。建議先自行壓縮影片，或只擷取需要字幕的片段再上傳。"
+        "error": "檔案太大了（上限 1GB）。這通常代表瀏覽器端壓縮沒有成功、退回上傳原始影片，建議換個瀏覽器或先自行壓縮影片後再試一次。"
     }), 413
 
 
