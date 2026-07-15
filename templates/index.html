@@ -23,7 +23,6 @@
   }
   .sub { color: #555; font-weight: 600; margin: 0 0 24px; }
 
-  /* ===== 硬邊位移陰影（neo-brutalism 招牌手法）===== */
   .card {
     border: 4px solid #000;
     border-radius: 24px;
@@ -60,7 +59,12 @@
     font-weight: 600;
     font-size: 13px;
   }
-  .file-row { display: flex; gap: 10px; margin-bottom: 14px; }
+  .file-status {
+    font-size: 12px;
+    font-weight: 700;
+    margin-top: 6px;
+    color: #444;
+  }
 
   button {
     width: 100%;
@@ -81,30 +85,50 @@
   }
   button:disabled { opacity: 0.6; cursor: not-allowed; }
 
-  .progress-wrap {
+  /* ===== 三階段進度顯示 ===== */
+  .stages {
     display: none;
-    margin-top: 16px;
+    margin-top: 18px;
   }
+  .stage-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    opacity: 0.35;
+    transition: opacity 0.2s ease;
+  }
+  .stage-row.active, .stage-row.done { opacity: 1; }
+  .stage-icon {
+    width: 30px; height: 30px;
+    border: 3px solid #000;
+    border-radius: 50%;
+    background: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .stage-row.done .stage-icon { background: #AEEBCB; }
+  .stage-row.active .stage-icon { background: #FFEB84; }
+  .stage-body { flex: 1; }
+  .stage-title { font-size: 13px; font-weight: 800; }
   .progress-outer {
     border: 3px solid #000;
     border-radius: 999px;
     background: #fff;
     padding: 3px;
-    box-shadow: 4px 4px 0 #000;
+    box-shadow: 3px 3px 0 #000;
+    margin-top: 4px;
   }
   .progress-inner {
-    height: 14px;
+    height: 10px;
     width: 0%;
     border-radius: 999px;
     background: #000;
-    transition: width 0.4s ease;
+    transition: width 0.3s ease;
   }
-  .progress-label {
-    margin-top: 8px;
-    font-size: 13px;
-    font-weight: 700;
-    color: #333;
-  }
+  .stage-row.done .progress-inner { background: #1a1a1a; }
+
   .error-box {
     display: none;
     margin-top: 14px;
@@ -187,17 +211,35 @@
       <h2>FILES</h2>
       <label for="video_file">Video / Audio File</label>
       <input type="file" id="video_file" name="video_file" accept="video/*,audio/*" required>
+      <div class="file-status" id="fileStatus">尚未選擇檔案</div>
     </div>
 
     <button type="submit" id="submitBtn">PROCESS SUBTITLES</button>
   </form>
 
-  <div class="progress-wrap" id="progressWrap">
-    <div class="progress-outer">
-      <div class="progress-inner" id="progressBar"></div>
+  <div class="stages" id="stages">
+    <div class="stage-row" id="stageCompress">
+      <div class="stage-icon">🎬</div>
+      <div class="stage-body">
+        <div class="stage-title" id="stageCompressTitle">壓縮影片音訊（瀏覽器本機處理）</div>
+        <div class="progress-outer"><div class="progress-inner" id="barCompress"></div></div>
+      </div>
     </div>
-    <p class="progress-label" id="progressLabel">準備中...</p>
-    <p class="hint">處理是在伺服器背景進行的，你可以放心切換到別的分頁或別的 App，等等再回來看這頁就好（請不要整個關掉分頁，不然會錯過自動下載）。</p>
+    <div class="stage-row" id="stageUpload">
+      <div class="stage-icon">☁️</div>
+      <div class="stage-body">
+        <div class="stage-title" id="stageUploadTitle">上傳音訊至伺服器</div>
+        <div class="progress-outer"><div class="progress-inner" id="barUpload"></div></div>
+      </div>
+    </div>
+    <div class="stage-row" id="stageServer">
+      <div class="stage-icon">🧠</div>
+      <div class="stage-body">
+        <div class="stage-title" id="stageServerTitle">辨識與翻譯中</div>
+        <div class="progress-outer"><div class="progress-inner" id="barServer"></div></div>
+      </div>
+    </div>
+    <p class="hint">整個處理是在伺服器背景進行的，壓縮跟上傳完成後可以放心切換到別的分頁或別的 App；請不要整個關掉分頁，不然會錯過自動下載。</p>
   </div>
 
   <div class="warning-box" id="warningBox"></div>
@@ -205,16 +247,26 @@
 
   <div class="done-box" id="doneBox">
     <a id="downloadLink" href="#">下載字幕檔</a>
-    <p class="hint" id="autoDownloadHint">已自動幫你開始下載，如果沒反應可以點上面這個按鈕。</p>
+    <p class="hint">已自動幫你開始下載，如果沒反應可以點上面這個按鈕。</p>
   </div>
 </div>
 
-<script>
+<script type="module">
+// 取得所有需要的 DOM 元素
 const form = document.getElementById('subtitleForm');
+const videoInput = document.getElementById('video_file');
+const fileStatus = document.getElementById('fileStatus');
 const submitBtn = document.getElementById('submitBtn');
-const progressWrap = document.getElementById('progressWrap');
-const progressBar = document.getElementById('progressBar');
-const progressLabel = document.getElementById('progressLabel');
+
+const stagesWrap = document.getElementById('stages');
+const stageCompress = document.getElementById('stageCompress');
+const stageUpload = document.getElementById('stageUpload');
+const stageServer = document.getElementById('stageServer');
+const barCompress = document.getElementById('barCompress');
+const barUpload = document.getElementById('barUpload');
+const barServer = document.getElementById('barServer');
+const stageServerTitle = document.getElementById('stageServerTitle');
+
 const errorBox = document.getElementById('errorBox');
 const warningBox = document.getElementById('warningBox');
 const doneBox = document.getElementById('doneBox');
@@ -223,13 +275,73 @@ const downloadLink = document.getElementById('downloadLink');
 let pollTimer = null;
 let autoDownloaded = false;
 
+// ---------- 瀏覽器端 ffmpeg.wasm：預先在背景載入 ----------
+let ffmpeg = null;
+let ffmpegReady = false;
+let ffmpegLoadFailed = false;
+
+// 宣告全域變數供後續使用
+let fetchFile, toBlobURL;
+
+async function initFfmpeg() {
+  try {
+    // 透過字串相加，完美避開 Cloudflare Email 亂碼防護機制
+    const ffmpegUrl = 'https://unpkg.com/@ffmpeg/ffmpeg' + '@' + '0.12.10/dist/esm/index.js';
+    const utilUrl   = 'https://unpkg.com/@ffmpeg/util'   + '@' + '0.12.2/dist/esm/index.js';
+    
+    // 動態載入模組
+    const ffmpegModule = await import(ffmpegUrl);
+    const utilModule   = await import(utilUrl);
+    
+    const FFmpeg = ffmpegModule.FFmpeg;
+    fetchFile = utilModule.fetchFile;
+    toBlobURL = utilModule.toBlobURL;
+
+    ffmpeg = new FFmpeg();
+    
+    // 核心引擎必須指向 @ffmpeg/core 
+    const baseURL = 'https://unpkg.com/@ffmpeg/core' + '@' + '0.12.6/dist/esm';
+    
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+    });
+    
+    ffmpegReady = true;
+    fileStatus.textContent = videoInput.files[0]
+      ? `已選擇：${videoInput.files[0].name}（壓縮引擎已就緒）`
+      : '壓縮引擎已就緒';
+  } catch (err) {
+    ffmpegLoadFailed = true;
+    console.error('ffmpeg.wasm 載入失敗，將改為直接上傳原始檔案', err);
+  }
+}
+initFfmpeg();
+
+videoInput.addEventListener('change', () => {
+  const f = videoInput.files[0];
+  if (!f) { fileStatus.textContent = '尚未選擇檔案'; return; }
+  const sizeMB = (f.size / (1024 * 1024)).toFixed(1);
+  fileStatus.textContent = `已選擇：${f.name}（${sizeMB} MB）` + (ffmpegReady ? '' : ' 壓縮引擎準備中...');
+});
+
+function setStageState(row, state) {
+  row.classList.remove('active', 'done');
+  if (state) row.classList.add(state);
+}
+
 function resetUI() {
   errorBox.style.display = 'none';
   warningBox.style.display = 'none';
   doneBox.style.display = 'none';
-  progressWrap.style.display = 'block';
-  progressBar.style.width = '0%';
-  progressLabel.textContent = '準備中...';
+  stagesWrap.style.display = 'block';
+  barCompress.style.width = '0%';
+  barUpload.style.width = '0%';
+  barServer.style.width = '0%';
+  setStageState(stageCompress, null);
+  setStageState(stageUpload, null);
+  setStageState(stageServer, null);
+  stageServerTitle.textContent = '辨識與翻譯中';
   autoDownloaded = false;
 }
 
@@ -237,7 +349,7 @@ function showError(msg) {
   clearInterval(pollTimer);
   errorBox.textContent = msg;
   errorBox.style.display = 'block';
-  progressWrap.style.display = 'none';
+  stagesWrap.style.display = 'none';
   submitBtn.disabled = false;
   submitBtn.textContent = 'PROCESS SUBTITLES';
 }
@@ -247,7 +359,6 @@ function triggerAutoDownload(jobId) {
   autoDownloaded = true;
   const url = `/download/${jobId}`;
   downloadLink.href = url;
-  // 用隱藏連結自動觸發下載，不需要使用者手動點擊
   const a = document.createElement('a');
   a.href = url;
   a.style.display = 'none';
@@ -256,9 +367,59 @@ function triggerAutoDownload(jobId) {
   document.body.removeChild(a);
 }
 
+// ---------- 階段一：瀏覽器端壓縮 ----------
+async function compressInBrowser(file) {
+  setStageState(stageCompress, 'active');
+
+  ffmpeg.on('progress', ({ progress }) => {
+    const pct = Math.min(100, Math.round(progress * 100));
+    barCompress.style.width = pct + '%';
+  });
+
+  const inputName = 'input_' + file.name.replace(/[^a-zA-Z0-9.]/g, '_');
+  await ffmpeg.writeFile(inputName, await fetchFile(file));
+  await ffmpeg.exec(['-i', inputName, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '64k', 'output.mp3']);
+  const data = await ffmpeg.readFile('output.mp3');
+
+  // 清理虛擬檔案系統，釋放記憶體
+  try { await ffmpeg.deleteFile(inputName); await ffmpeg.deleteFile('output.mp3'); } catch (e) {}
+
+  barCompress.style.width = '100%';
+  setStageState(stageCompress, 'done');
+  return new File([data.buffer], 'compressed_audio.mp3', { type: 'audio/mpeg' });
+}
+
+// ---------- 階段二：上傳（用 XHR 才能拿到即時上傳進度）----------
+function uploadWithProgress(formData) {
+  setStageState(stageUpload, 'active');
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/process');
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        barUpload.style.width = pct + '%';
+      }
+    };
+    xhr.onload = () => {
+      barUpload.style.width = '100%';
+      setStageState(stageUpload, 'done');
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(new Error(data.error || `伺服器錯誤（${xhr.status}）`));
+      } catch (e) {
+        reject(new Error('伺服器回應格式錯誤'));
+      }
+    };
+    xhr.onerror = () => reject(new Error('上傳失敗，請確認網路狀況。'));
+    xhr.send(formData);
+  });
+}
+
+// ---------- 階段三：伺服器端輪詢 ----------
 function pollStatus(jobId) {
-  // 把工作編號記在網址上，這樣就算把分頁關掉，只要之後重新打開同一個網址
-  // （例如從瀏覽紀錄點回來），頁面還是能繼續顯示這個工作的進度或下載連結。
+  setStageState(stageServer, 'active');
   const newUrl = `${window.location.pathname}?job=${jobId}`;
   window.history.replaceState({ jobId }, '', newUrl);
 
@@ -271,10 +432,9 @@ function pollStatus(jobId) {
         return;
       }
       const data = await res.json();
-
       const pct = data.progress || 0;
-      progressBar.style.width = pct + '%';
-      progressLabel.textContent = `${data.message || '處理中...'}（${pct}%）`;
+      barServer.style.width = pct + '%';
+      stageServerTitle.textContent = `${data.message || '處理中...'}（${pct}%）`;
 
       if (data.warning) {
         warningBox.textContent = '⚠ ' + data.warning;
@@ -283,7 +443,8 @@ function pollStatus(jobId) {
 
       if (data.status === 'done') {
         clearInterval(pollTimer);
-        progressWrap.style.display = 'none';
+        setStageState(stageServer, 'done');
+        stagesWrap.style.display = 'none';
         doneBox.style.display = 'block';
         submitBtn.disabled = false;
         submitBtn.textContent = 'PROCESS SUBTITLES';
@@ -303,34 +464,48 @@ form.addEventListener('submit', async (e) => {
   submitBtn.disabled = true;
   submitBtn.textContent = 'PROCESSING...';
 
-  const formData = new FormData(form);
-
   try {
-    const res = await fetch('/process', { method: 'POST', body: formData });
-    const data = await res.json();
+    const originalFile = videoInput.files[0];
+    let fileToUpload = originalFile;
 
-    if (!res.ok) {
-      showError(data.error || '送出失敗，請再試一次。');
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'PROCESS SUBTITLES';
-      return;
+    if (ffmpegReady && !ffmpegLoadFailed) {
+      try {
+        fileToUpload = await compressInBrowser(originalFile);
+      } catch (err) {
+        console.error('瀏覽器端壓縮失敗，改為直接上傳原始檔案', err);
+        warningBox.textContent = '⚠ 瀏覽器端壓縮失敗，已改為直接上傳原始檔案（可能較慢）。';
+        warningBox.style.display = 'block';
+        setStageState(stageCompress, 'done');
+        barCompress.style.width = '100%';
+      }
+    } else {
+      // 壓縮引擎不可用（載入失敗或還沒準備好），直接跳過這個階段
+      setStageState(stageCompress, 'done');
+      barCompress.style.width = '100%';
+      warningBox.textContent = '⚠ 壓縮引擎尚未就緒，已改為直接上傳原始檔案（可能較慢）。';
+      warningBox.style.display = 'block';
     }
 
+    const formData = new FormData(form);
+    formData.set('video_file', fileToUpload, fileToUpload.name);
+
+    const data = await uploadWithProgress(formData);
     pollStatus(data.job_id);
+
   } catch (err) {
-    showError('送出失敗，請確認網路狀況後再試一次。');
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'PROCESS SUBTITLES';
+    showError(err.message || '送出失敗，請再試一次。');
   }
 });
 
-// 如果網址上已經帶有 job 參數（例如使用者重新打開先前的分頁），
-// 自動接續顯示該工作的狀態，不用重新上傳一次。
 window.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
   const existingJob = params.get('job');
   if (existingJob) {
     resetUI();
+    setStageState(stageCompress, 'done');
+    setStageState(stageUpload, 'done');
+    barCompress.style.width = '100%';
+    barUpload.style.width = '100%';
     submitBtn.disabled = true;
     submitBtn.textContent = 'PROCESSING...';
     pollStatus(existingJob);
