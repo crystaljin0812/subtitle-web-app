@@ -1,260 +1,280 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Subtitle Gen - Web</title>
-    <style>
-        /* 基礎設定 */
-        body {
-            background-color: #FDFBF7;
-            font-family: 'Helvetica', 'Arial Black', sans-serif;
-            display: flex;
-            justify-content: center;
-            padding: 40px 20px;
-            margin: 0;
-            color: #000;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Subtitle Gen - Web</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 40px 20px;
+    background: #FDFBF7;
+    font-family: -apple-system, "PingFang TC", "Helvetica Neue", sans-serif;
+    display: flex;
+    justify-content: center;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 {
+    font-family: "Arial Black", "Helvetica Neue", sans-serif;
+    font-size: 34px;
+    line-height: 1.05;
+    margin: 0 0 4px;
+  }
+  .sub { color: #555; font-weight: 600; margin: 0 0 24px; }
 
-        .container {
-            width: 100%;
-            max-width: 500px;
-        }
+  .card {
+    border: 4px solid #000;
+    border-radius: 24px;
+    padding: 18px 20px 20px;
+    margin-bottom: 20px;
+  }
+  .card.purple { background: #F4CCFF; }
+  .card.yellow { background: #FFEB84; }
+  .card.mint { background: #AEEBCB; }
+  .card h2 {
+    font-family: "Arial Black", "Helvetica Neue", sans-serif;
+    font-size: 18px;
+    margin: 0 0 12px;
+  }
+  label {
+    display: block;
+    font-weight: 700;
+    font-size: 13px;
+    margin: 10px 0 6px;
+  }
+  input[type="text"], input[type="password"], select {
+    width: 100%;
+    border: 3px solid #000;
+    border-radius: 10px;
+    padding: 9px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    background: #fff;
+  }
+  input[type="file"] {
+    width: 100%;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .file-row { display: flex; gap: 10px; margin-bottom: 14px; }
 
-        /* 標題設計 */
-        h1 {
-            font-size: 42px;
-            font-weight: 900;
-            line-height: 1.1;
-            margin-bottom: 5px;
-            text-transform: uppercase;
-        }
-        p.subtitle {
-            font-weight: bold;
-            color: #555;
-            margin-bottom: 30px;
-        }
+  button {
+    width: 100%;
+    border: none;
+    border-radius: 999px;
+    background: #000;
+    color: #AEEBCB;
+    font-family: "Arial Black", "Helvetica Neue", sans-serif;
+    font-size: 17px;
+    padding: 18px 0;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        /* 大圓角黑框卡片 */
-        .neo-card {
-            border: 4px solid #000;
-            border-radius: 20px;
-            padding: 24px;
-            margin-bottom: 24px;
-            box-shadow: 6px 6px 0px #000;
-        }
-        .card-purple { background-color: #F4CCFF; }
-        .card-yellow { background-color: #FFEB84; }
-        .card-blue { background-color: #B4D4FF; } /* 新增的設定卡片顏色 */
-
-        .neo-card h2 {
-            margin-top: 0;
-            font-size: 20px;
-            font-weight: 900;
-            text-transform: uppercase;
-        }
-
-        /* 輸入框與下拉選單設計 */
-        label {
-            display: block;
-            font-weight: bold;
-            margin-bottom: 8px;
-            margin-top: 16px;
-        }
-        input[type="text"], input[type="file"], select {
-            width: 100%;
-            padding: 12px;
-            border: 3px solid #000;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: bold;
-            box-sizing: border-box;
-            background-color: #FFF;
-        }
-        input[type="file"], select {
-            cursor: pointer;
-        }
-
-        /* 黑膠囊按鈕 */
-        .submit-btn {
-            width: 100%;
-            background-color: #000;
-            color: #AEEBCB;
-            border: none;
-            border-radius: 50px;
-            padding: 20px;
-            font-size: 20px;
-            font-weight: 900;
-            cursor: pointer;
-            margin-top: 10px;
-            transition: all 0.2s;
-        }
-        .submit-btn:hover {
-            background-color: #333;
-            transform: translate(-2px, -2px);
-            box-shadow: 4px 4px 0px #AEEBCB;
-        }
-        .submit-btn:active {
-            transform: translate(2px, 2px);
-            box-shadow: none;
-        }
-
-        /* 斑馬線進度條 */
-        #loading-container {
-            display: none; 
-            margin-top: 20px;
-        }
-        .progress-box {
-            border: 4px solid #000;
-            border-radius: 50px;
-            overflow: hidden;
-            background-color: #FFF;
-            height: 40px;
-        }
-        .progress-bar {
-            width: 100%;
-            height: 100%;
-            background: repeating-linear-gradient(
-                45deg,
-                #AEEBCB,
-                #AEEBCB 15px,
-                #000 15px,
-                #000 30px
-            );
-            animation: move-stripes 1s linear infinite;
-        }
-        @keyframes move-stripes {
-            0% { background-position: 0 0; }
-            100% { background-position: 42.42px 0; }
-        }
-        .loading-text {
-            text-align: center;
-            font-weight: 900;
-            font-size: 14px;
-            margin-top: 12px;
-            color: #000;
-        }
-    </style>
+  .progress-wrap {
+    display: none;
+    margin-top: 16px;
+  }
+  .progress-outer {
+    border: 3px solid #000;
+    border-radius: 999px;
+    background: #fff;
+    padding: 3px;
+  }
+  .progress-inner {
+    height: 14px;
+    width: 0%;
+    border-radius: 999px;
+    background: #000;
+    transition: width 0.4s ease;
+  }
+  .progress-label {
+    margin-top: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #333;
+  }
+  .error-box {
+    display: none;
+    margin-top: 14px;
+    border: 3px solid #000;
+    border-radius: 14px;
+    background: #FFD3D3;
+    padding: 12px 14px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .warning-box {
+    display: none;
+    margin-top: 10px;
+    border: 3px solid #000;
+    border-radius: 14px;
+    background: #FFF3C4;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .done-box {
+    display: none;
+    margin-top: 14px;
+    text-align: center;
+  }
+  .done-box a {
+    display: inline-block;
+    background: #000;
+    color: #FFEB84;
+    text-decoration: none;
+    font-weight: 800;
+    padding: 12px 24px;
+    border-radius: 999px;
+  }
+</style>
 </head>
 <body>
+<div class="wrap">
+  <h1>GENERATED<br>CAPTIONS</h1>
+  <p class="sub">Transform audio to text instantly.</p>
 
-<div class="container">
-    <h1>Generated<br>Captions</h1>
-    <p class="subtitle">Transform audio to text instantly.</p>
+  <form id="subtitleForm">
+    <div class="card purple">
+      <h2>API KEYS</h2>
+      <label for="api_key">Gemini API</label>
+      <input type="password" id="api_key" name="api_key" required placeholder="輸入你的 Gemini API 金鑰">
+    </div>
 
-    <form id="upload-form" onsubmit="handleFormSubmit(event)">
-        
-        <!-- API 卡片 -->
-        <div class="neo-card card-purple">
-            <h2>API Keys</h2>
-            <label>Gemini API</label>
-            <input type="text" name="api_key" placeholder="AIzaSy..." required>
-        </div>
+    <div class="card yellow">
+      <h2>SETTINGS</h2>
+      <label for="target_language">Target Language</label>
+      <select id="target_language" name="target_language">
+        <option value="繁體中文">繁體中文 (Traditional Chinese)</option>
+        <option value="簡體中文">簡體中文 (Simplified Chinese)</option>
+        <option value="English">English</option>
+        <option value="日本語">日本語</option>
+        <option value="한국어">한국어</option>
+        <option value="original">維持原文 (No Translation)</option>
+      </select>
 
-        <!-- 進階設定卡片 -->
-        <div class="neo-card card-blue">
-            <h2>Settings</h2>
-            
-            <label>Target Language</label>
-            <select name="target_language">
-                <option value="繁體中文">繁體中文 (Traditional Chinese)</option>
-                <option value="簡體中文">簡體中文 (Simplified Chinese)</option>
-                <option value="English">English</option>
-                <option value="日本語">日本語</option>
-                <option value="한국어">한국어</option>
-                <option value="original">維持原文 (No Translation)</option>
-            </select>
+      <label for="output_format">Output Format</label>
+      <select id="output_format" name="output_format">
+        <option value="srt">SRT (標準字幕檔)</option>
+        <option value="txt">TXT (純文字逐字稿)</option>
+      </select>
+    </div>
 
-            <label>Output Format</label>
-            <select name="output_format">
-                <option value="srt">SRT (標準字幕檔)</option>
-                <option value="txt">TXT (純文字逐字稿)</option>
-            </select>
-        </div>
+    <div class="card mint">
+      <h2>FILES</h2>
+      <label for="video_file">Video / Audio File</label>
+      <input type="file" id="video_file" name="video_file" accept="video/*,audio/*" required>
+    </div>
 
-        <!-- 檔案卡片 -->
-        <div class="neo-card card-yellow">
-            <h2>Files</h2>
-            <label>Video / Audio File</label>
-            <input type="file" name="video_file" accept="video/*,audio/*" required>
-        </div>
+    <button type="submit" id="submitBtn">PROCESS SUBTITLES</button>
+  </form>
 
-        <button type="submit" id="submit-btn" class="submit-btn">PROCESS SUBTITLES</button>
-        
-        <div id="loading-container">
-            <div class="progress-box">
-                <div class="progress-bar"></div>
-            </div>
-            <p class="loading-text">PROCESSING... DO NOT CLOSE THIS PAGE</p>
-        </div>
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-outer">
+      <div class="progress-inner" id="progressBar"></div>
+    </div>
+    <p class="progress-label" id="progressLabel">準備中...</p>
+  </div>
 
-    </form>
+  <div class="warning-box" id="warningBox"></div>
+  <div class="error-box" id="errorBox"></div>
+
+  <div class="done-box" id="doneBox">
+    <a id="downloadLink" href="#">下載字幕檔</a>
+  </div>
 </div>
 
 <script>
-    let isProcessing = false;
+const form = document.getElementById('subtitleForm');
+const submitBtn = document.getElementById('submitBtn');
+const progressWrap = document.getElementById('progressWrap');
+const progressBar = document.getElementById('progressBar');
+const progressLabel = document.getElementById('progressLabel');
+const errorBox = document.getElementById('errorBox');
+const warningBox = document.getElementById('warningBox');
+const doneBox = document.getElementById('doneBox');
+const downloadLink = document.getElementById('downloadLink');
 
-    window.addEventListener('beforeunload', function (e) {
-        if (isProcessing) {
-            e.preventDefault();
-            e.returnValue = '影片正在處理中，離開將會中斷進度，確定要離開嗎？'; 
-        }
-    });
+let pollTimer = null;
 
-    async function handleFormSubmit(event) {
-        event.preventDefault(); 
+function resetUI() {
+  errorBox.style.display = 'none';
+  warningBox.style.display = 'none';
+  doneBox.style.display = 'none';
+  progressWrap.style.display = 'block';
+  progressBar.style.width = '0%';
+  progressLabel.textContent = '準備中...';
+}
 
-        const form = document.getElementById('upload-form');
-        const btn = document.getElementById('submit-btn');
-        const loadingBox = document.getElementById('loading-container');
+function showError(msg) {
+  clearInterval(pollTimer);
+  errorBox.textContent = msg;
+  errorBox.style.display = 'block';
+  progressWrap.style.display = 'none';
+  submitBtn.disabled = false;
+  submitBtn.textContent = 'PROCESS SUBTITLES';
+}
 
-        btn.style.display = 'none';
-        loadingBox.style.display = 'block';
-        isProcessing = true;
+function pollStatus(jobId) {
+  pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`/status/${jobId}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showError(data.error || '找不到這個處理工作，請重新上傳。');
+        return;
+      }
+      const data = await res.json();
 
-        try {
-            const formData = new FormData(form);
-            const response = await fetch('/process', {
-                method: 'POST',
-                body: formData
-            });
+      const pct = data.progress || 0;
+      progressBar.style.width = pct + '%';
+      progressLabel.textContent = `${data.message || '處理中...'}（${pct}%）`;
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                alert('發生錯誤：' + errorText);
-            } else {
-                const blob = await response.blob();
-                const downloadUrl = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
+      if (data.warning) {
+        warningBox.textContent = '⚠ ' + data.warning;
+        warningBox.style.display = 'block';
+      }
 
-                // 動態從伺服器抓取正確的檔名 (包含 .txt 或 .srt)
-                let filename = "download_file"; 
-                const disposition = response.headers.get('content-disposition');
-                if (disposition && disposition.indexOf('filename=') !== -1) {
-                    const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
-                    if (matches != null && matches[1]) {
-                        filename = matches[1].replace(/['"]/g, '');
-                    }
-                }
-
-                a.href = downloadUrl;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                a.remove(); 
-                window.URL.revokeObjectURL(downloadUrl); 
-            }
-        } catch (error) {
-            alert('網路連線中斷或伺服器異常！請保持網頁開啟並確保網路穩定。');
-        } finally {
-            loadingBox.style.display = 'none';
-            btn.style.display = 'block';
-            isProcessing = false; 
-            
-            form.reset(); 
-        }
+      if (data.status === 'done') {
+        clearInterval(pollTimer);
+        progressWrap.style.display = 'none';
+        doneBox.style.display = 'block';
+        downloadLink.href = `/download/${jobId}`;
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'PROCESS SUBTITLES';
+      } else if (data.status === 'error') {
+        showError(data.message || '處理失敗，請再試一次。');
+      }
+    } catch (err) {
+      showError('連線發生問題，請確認網路狀況後再試一次。');
     }
-</script>
+  }, 1500);
+}
 
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  resetUI();
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'PROCESSING...';
+
+  const formData = new FormData(form);
+
+  try {
+    const res = await fetch('/process', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showError(data.error || '送出失敗，請再試一次。');
+      return;
+    }
+
+    pollStatus(data.job_id);
+  } catch (err) {
+    showError('送出失敗，請確認網路狀況後再試一次。');
+  }
+});
+</script>
 </body>
 </html>
