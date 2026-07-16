@@ -85,7 +85,7 @@
   }
   button:disabled { opacity: 0.6; cursor: not-allowed; }
 
-  /* ===== 三階段進度顯示 ===== */
+  /* ===== 兩階段進度顯示 ===== */
   .stages {
     display: none;
     margin-top: 18px;
@@ -185,7 +185,7 @@
     <div class="card purple">
       <h2>API KEYS</h2>
       <label for="api_key">Gemini API</label>
-      <input type="password" id="api_key" name="api_key" required placeholder="輸入你的 Gemini API 金鑰">
+      <input type="password" id="api_key" name="api_key" required placeholder="輸入你的 Gemini API 金鑰" autocomplete="off">
     </div>
 
     <div class="card yellow">
@@ -218,17 +218,10 @@
   </form>
 
   <div class="stages" id="stages">
-    <div class="stage-row" id="stageCompress">
-      <div class="stage-icon">🎬</div>
-      <div class="stage-body">
-        <div class="stage-title" id="stageCompressTitle">壓縮影片音訊（瀏覽器本機處理）</div>
-        <div class="progress-outer"><div class="progress-inner" id="barCompress"></div></div>
-      </div>
-    </div>
     <div class="stage-row" id="stageUpload">
       <div class="stage-icon">☁️</div>
       <div class="stage-body">
-        <div class="stage-title" id="stageUploadTitle">上傳音訊至伺服器</div>
+        <div class="stage-title" id="stageUploadTitle">上傳檔案至伺服器</div>
         <div class="progress-outer"><div class="progress-inner" id="barUpload"></div></div>
       </div>
     </div>
@@ -239,7 +232,7 @@
         <div class="progress-outer"><div class="progress-inner" id="barServer"></div></div>
       </div>
     </div>
-    <p class="hint">整個處理是在伺服器背景進行的，壓縮跟上傳完成後可以放心切換到別的分頁或別的 App；但請不要整個關掉這個分頁或重新整理，不然會直接遺失這次的進度、也錯過自動下載（重新整理會回到全新的首頁）。</p>
+    <p class="hint">整個處理是在伺服器背景進行的，上傳完成後可以放心切換到別的分頁或別的 App；但請不要整個關掉這個分頁或重新整理，不然會直接遺失這次的進度、也錯過自動下載（重新整理會回到全新的首頁）。</p>
   </div>
 
   <div class="warning-box" id="warningBox"></div>
@@ -252,21 +245,14 @@
 </div>
 
 <script>
-// 注意：這裡故意不寫成 type="module"，也刻意不用寫死版本號的 "package@1.2.3" 這種寫法
-// （那種格式太像 email，經過某些工具複製貼上很容易被自動置換成亂碼），
-// 改用「動態 import()」搭配版本字串變數組出網址，並且整段包在 try/catch 裡：
-// 就算這個外部壓縮引擎載入失敗，也絕對不會影響到下面表單送出、進度顯示等其他功能。
-
 const form = document.getElementById('subtitleForm');
 const videoInput = document.getElementById('video_file');
 const fileStatus = document.getElementById('fileStatus');
 const submitBtn = document.getElementById('submitBtn');
 
 const stagesWrap = document.getElementById('stages');
-const stageCompress = document.getElementById('stageCompress');
 const stageUpload = document.getElementById('stageUpload');
 const stageServer = document.getElementById('stageServer');
-const barCompress = document.getElementById('barCompress');
 const barUpload = document.getElementById('barUpload');
 const barServer = document.getElementById('barServer');
 const stageServerTitle = document.getElementById('stageServerTitle');
@@ -279,59 +265,11 @@ const downloadLink = document.getElementById('downloadLink');
 let pollTimer = null;
 let autoDownloaded = false;
 
-// ---------- 瀏覽器端壓縮引擎：用動態 import()，失敗絕對不會影響其他功能 ----------
-let ffmpeg = null;
-let ffmpegReady = false;
-let ffmpegLoadFailed = false;
-let fetchFileFn = null;
-
-function buildUnpkgUrl(scope, pkg, version, path) {
-  // 用字串組合而非寫死在同一行，避免看起來像 email 的樣式被誤判置換
-  const versionPart = version ? ('@' + version) : '';
-  return 'https://unpkg.com/' + scope + '/' + pkg + versionPart + path;
-}
-
-async function initFfmpeg() {
-  try {
-    const ffmpegModUrl = buildUnpkgUrl('@ffmpeg', 'ffmpeg', '0.12.10', '/dist/esm/index.js');
-    const utilModUrl = buildUnpkgUrl('@ffmpeg', 'util', '0.12.1', '/dist/esm/index.js');
-
-    const [ffmpegMod, utilMod] = await Promise.all([
-      import(/* webpackIgnore: true */ ffmpegModUrl),
-      import(/* webpackIgnore: true */ utilModUrl),
-    ]);
-
-    const { FFmpeg } = ffmpegMod;
-    const { fetchFile, toBlobURL } = utilMod;
-    fetchFileFn = fetchFile;
-
-    ffmpeg = new FFmpeg();
-    const coreBase = buildUnpkgUrl('@ffmpeg', 'core', '0.12.6', '/dist/esm');
-    const ffmpegBase = buildUnpkgUrl('@ffmpeg', 'ffmpeg', '0.12.10', '/dist/esm');
-    await ffmpeg.load({
-      coreURL: await toBlobURL(coreBase + '/ffmpeg-core.js', 'text/javascript'),
-      wasmURL: await toBlobURL(coreBase + '/ffmpeg-core.wasm', 'application/wasm'),
-      // Worker 腳本規定一定要跟頁面同源，不能直接指向外部 CDN 網址，
-      // 所以一樣要用 toBlobURL 轉成瀏覽器可接受的同源 blob 網址。
-      classWorkerURL: await toBlobURL(ffmpegBase + '/worker.js', 'text/javascript'),
-    });
-
-    ffmpegReady = true;
-    if (videoInput.files[0]) {
-      fileStatus.textContent = `已選擇：${videoInput.files[0].name}（壓縮引擎已就緒）`;
-    }
-  } catch (err) {
-    ffmpegLoadFailed = true;
-    console.error('壓縮引擎載入失敗，將改為直接上傳原始檔案（功能仍可正常使用）', err);
-  }
-}
-const ffmpegInitPromise = initFfmpeg();
-
 videoInput.addEventListener('change', () => {
   const f = videoInput.files[0];
   if (!f) { fileStatus.textContent = '尚未選擇檔案'; return; }
   const sizeMB = (f.size / (1024 * 1024)).toFixed(1);
-  fileStatus.textContent = `已選擇：${f.name}（${sizeMB} MB）` + (ffmpegReady ? '' : '　壓縮引擎準備中...');
+  fileStatus.textContent = `已選擇：${f.name}（${sizeMB} MB）`;
 });
 
 function setStageState(row, state) {
@@ -344,10 +282,8 @@ function resetUI() {
   warningBox.style.display = 'none';
   doneBox.style.display = 'none';
   stagesWrap.style.display = 'block';
-  barCompress.style.width = '0%';
   barUpload.style.width = '0%';
   barServer.style.width = '0%';
-  setStageState(stageCompress, null);
   setStageState(stageUpload, null);
   setStageState(stageServer, null);
   stageServerTitle.textContent = '辨識與翻譯中';
@@ -376,29 +312,7 @@ function triggerAutoDownload(jobId) {
   document.body.removeChild(a);
 }
 
-// ---------- 階段一：瀏覽器端壓縮 ----------
-async function compressInBrowser(file) {
-  setStageState(stageCompress, 'active');
-
-  ffmpeg.on('progress', ({ progress }) => {
-    const pct = Math.min(100, Math.round(progress * 100));
-    barCompress.style.width = pct + '%';
-  });
-
-  const inputName = 'input_' + file.name.replace(/[^a-zA-Z0-9.]/g, '_');
-  await ffmpeg.writeFile(inputName, await fetchFileFn(file));
-  await ffmpeg.exec(['-i', inputName, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '64k', 'output.mp3']);
-  const data = await ffmpeg.readFile('output.mp3');
-
-  // 清理虛擬檔案系統，釋放記憶體
-  try { await ffmpeg.deleteFile(inputName); await ffmpeg.deleteFile('output.mp3'); } catch (e) {}
-
-  barCompress.style.width = '100%';
-  setStageState(stageCompress, 'done');
-  return new File([data.buffer], 'compressed_audio.mp3', { type: 'audio/mpeg' });
-}
-
-// ---------- 階段二：上傳（用 XHR 才能拿到即時上傳進度）----------
+// ---------- 階段一：上傳（用 XHR 才能拿到即時上傳進度）----------
 function uploadWithProgress(formData) {
   setStageState(stageUpload, 'active');
   return new Promise((resolve, reject) => {
@@ -426,13 +340,10 @@ function uploadWithProgress(formData) {
   });
 }
 
-// ---------- 階段三：伺服器端輪詢（沿用原本邏輯）----------
+// ---------- 階段二：伺服器端輪詢 ----------
 function pollStatus(jobId) {
   setStageState(stageServer, 'active');
-  // 注意：故意不把 job_id 寫進網址了——這樣不管使用者重新整理或關掉分頁再打開，
-  // 網址永遠是乾淨的首頁，不會停留在某次處理的狀態上。
-  // 代價是：如果真的在處理過程中重新整理，就無法接續看到那次的進度或下載連結了，
-  // 這是配合「重整永遠回首頁」的需求所做的取捨。
+  // 網址故意不記住 job_id：重新整理／重新打開一律回到乾淨首頁。
 
   pollTimer = setInterval(async () => {
     try {
@@ -476,53 +387,13 @@ form.addEventListener('submit', async (e) => {
   submitBtn.textContent = 'PROCESSING...';
 
   try {
-    const originalFile = videoInput.files[0];
-    let fileToUpload = originalFile;
-
-    // 如果壓縮引擎還在背景載入中，先等它一下（最多 15 秒）再判斷，
-    // 避免使用者選好檔案就立刻按下開始，引擎還沒載完就被誤判成「不可用」。
-    if (!ffmpegReady && !ffmpegLoadFailed) {
-      fileStatus.textContent = '正在準備壓縮引擎，請稍候...';
-      await Promise.race([
-        ffmpegInitPromise,
-        new Promise((resolve) => setTimeout(resolve, 15000)),
-      ]);
-    }
-
-    if (ffmpegReady && !ffmpegLoadFailed) {
-      try {
-        fileToUpload = await compressInBrowser(originalFile);
-      } catch (err) {
-        console.error('瀏覽器端壓縮失敗，改為直接上傳原始檔案', err);
-        warningBox.textContent = '⚠ 瀏覽器端壓縮失敗，已改為直接上傳原始檔案（可能較慢）。';
-        warningBox.style.display = 'block';
-        setStageState(stageCompress, 'done');
-        barCompress.style.width = '100%';
-      }
-    } else {
-      // 壓縮引擎不可用（載入失敗，或等了 15 秒還沒準備好），直接跳過這個階段
-      setStageState(stageCompress, 'done');
-      barCompress.style.width = '100%';
-      warningBox.textContent = '⚠ 壓縮引擎尚未就緒，已改為直接上傳原始檔案（可能較慢）。';
-      warningBox.style.display = 'block';
-    }
-
     const formData = new FormData(form);
-    formData.set('video_file', fileToUpload, fileToUpload.name);
-    // 即使壓縮後檔名變成 compressed_audio.mp3，這裡仍保留使用者原本選的檔名，
-    // 讓伺服器產生下載檔名時可以對應回原始影片名稱。
-    formData.set('original_filename', originalFile.name);
-
     const data = await uploadWithProgress(formData);
     pollStatus(data.job_id);
-
   } catch (err) {
     showError(err.message || '送出失敗，請再試一次。');
   }
 });
-
-// 注意：故意不做「重新整理後自動接續舊工作」的邏輯了——
-// 每次重新整理／打開這個網址，就是乾淨的首頁，不會停留在某個 job 的狀態。
 </script>
 </body>
 </html>
