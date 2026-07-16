@@ -242,7 +242,7 @@ def transcribe_and_translate(client, model_name, audio_path, prompt):
 
 # ---------- 背景處理主流程 ----------
 
-def run_job(job_id, video_path, api_key, target_language, output_format):
+def run_job(job_id, video_path, api_key, target_language, output_format, original_stem):
     try:
         set_job(job_id, status="processing", progress=2, message="正在從影片擷取音訊...")
 
@@ -290,7 +290,7 @@ def run_job(job_id, video_path, api_key, target_language, output_format):
                 build_srt(processed_segments, out_path)
 
             set_job(job_id, status="done", progress=100, message="完成！",
-                    output_path=out_path, download_name=f"subtitles.{output_format}")
+                    output_path=out_path, download_name=f"{original_stem}.{output_format}")
 
     except Exception as e:
         traceback.print_exc()
@@ -316,6 +316,9 @@ def process_video():
     video_file = request.files.get("video_file")
     target_language = request.form.get("target_language", "繁體中文")
     output_format = request.form.get("output_format", "srt")
+    # 瀏覽器端如果有先壓縮成音訊，上傳的檔名會變成 compressed_audio.mp3，
+    # 所以另外用這個欄位保留「使用者原本選的影片檔名」，下載時才能對應回去。
+    original_filename = request.form.get("original_filename") or (video_file.filename if video_file else None)
 
     if not video_file or video_file.filename == '':
         return jsonify({"error": "請上傳影片檔案"}), 400
@@ -331,12 +334,17 @@ def process_video():
     video_path = os.path.join(UPLOAD_FOLDER, f"{job_id}_{safe_filename}")
     video_file.save(video_path)
 
+    safe_original = secure_filename(original_filename) if original_filename else ""
+    original_stem = os.path.splitext(safe_original)[0] if safe_original else ""
+    if not original_stem:
+        original_stem = "subtitles"
+
     with JOBS_LOCK:
         JOBS[job_id] = {"status": "queued", "progress": 0, "message": "已加入處理佇列..."}
 
     thread = threading.Thread(
         target=run_job,
-        args=(job_id, video_path, api_key, target_language, output_format),
+        args=(job_id, video_path, api_key, target_language, output_format, original_stem),
         daemon=True,
     )
     thread.start()

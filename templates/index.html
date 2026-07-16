@@ -239,7 +239,7 @@
         <div class="progress-outer"><div class="progress-inner" id="barServer"></div></div>
       </div>
     </div>
-    <p class="hint">整個處理是在伺服器背景進行的，壓縮跟上傳完成後可以放心切換到別的分頁或別的 App；請不要整個關掉分頁，不然會錯過自動下載。</p>
+    <p class="hint">整個處理是在伺服器背景進行的，壓縮跟上傳完成後可以放心切換到別的分頁或別的 App；但請不要整個關掉這個分頁或重新整理，不然會直接遺失這次的進度、也錯過自動下載（重新整理會回到全新的首頁）。</p>
   </div>
 
   <div class="warning-box" id="warningBox"></div>
@@ -429,8 +429,10 @@ function uploadWithProgress(formData) {
 // ---------- 階段三：伺服器端輪詢（沿用原本邏輯）----------
 function pollStatus(jobId) {
   setStageState(stageServer, 'active');
-  const newUrl = `${window.location.pathname}?job=${jobId}`;
-  window.history.replaceState({ jobId }, '', newUrl);
+  // 注意：故意不把 job_id 寫進網址了——這樣不管使用者重新整理或關掉分頁再打開，
+  // 網址永遠是乾淨的首頁，不會停留在某次處理的狀態上。
+  // 代價是：如果真的在處理過程中重新整理，就無法接續看到那次的進度或下載連結了，
+  // 這是配合「重整永遠回首頁」的需求所做的取捨。
 
   pollTimer = setInterval(async () => {
     try {
@@ -507,6 +509,9 @@ form.addEventListener('submit', async (e) => {
 
     const formData = new FormData(form);
     formData.set('video_file', fileToUpload, fileToUpload.name);
+    // 即使壓縮後檔名變成 compressed_audio.mp3，這裡仍保留使用者原本選的檔名，
+    // 讓伺服器產生下載檔名時可以對應回原始影片名稱。
+    formData.set('original_filename', originalFile.name);
 
     const data = await uploadWithProgress(formData);
     pollStatus(data.job_id);
@@ -516,20 +521,8 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-window.addEventListener('DOMContentLoaded', () => {
-  const params = new URLSearchParams(window.location.search);
-  const existingJob = params.get('job');
-  if (existingJob) {
-    resetUI();
-    setStageState(stageCompress, 'done');
-    setStageState(stageUpload, 'done');
-    barCompress.style.width = '100%';
-    barUpload.style.width = '100%';
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'PROCESSING...';
-    pollStatus(existingJob);
-  }
-});
+// 注意：故意不做「重新整理後自動接續舊工作」的邏輯了——
+// 每次重新整理／打開這個網址，就是乾淨的首頁，不會停留在某個 job 的狀態。
 </script>
 </body>
 </html>
