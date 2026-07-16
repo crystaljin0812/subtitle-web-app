@@ -325,7 +325,7 @@ async function initFfmpeg() {
     console.error('壓縮引擎載入失敗，將改為直接上傳原始檔案（功能仍可正常使用）', err);
   }
 }
-initFfmpeg();
+const ffmpegInitPromise = initFfmpeg();
 
 videoInput.addEventListener('change', () => {
   const f = videoInput.files[0];
@@ -477,6 +477,16 @@ form.addEventListener('submit', async (e) => {
     const originalFile = videoInput.files[0];
     let fileToUpload = originalFile;
 
+    // 如果壓縮引擎還在背景載入中，先等它一下（最多 15 秒）再判斷，
+    // 避免使用者選好檔案就立刻按下開始，引擎還沒載完就被誤判成「不可用」。
+    if (!ffmpegReady && !ffmpegLoadFailed) {
+      fileStatus.textContent = '正在準備壓縮引擎，請稍候...';
+      await Promise.race([
+        ffmpegInitPromise,
+        new Promise((resolve) => setTimeout(resolve, 15000)),
+      ]);
+    }
+
     if (ffmpegReady && !ffmpegLoadFailed) {
       try {
         fileToUpload = await compressInBrowser(originalFile);
@@ -488,7 +498,7 @@ form.addEventListener('submit', async (e) => {
         barCompress.style.width = '100%';
       }
     } else {
-      // 壓縮引擎不可用（載入失敗或還沒準備好），直接跳過這個階段
+      // 壓縮引擎不可用（載入失敗，或等了 15 秒還沒準備好），直接跳過這個階段
       setStageState(stageCompress, 'done');
       barCompress.style.width = '100%';
       warningBox.textContent = '⚠ 壓縮引擎尚未就緒，已改為直接上傳原始檔案（可能較慢）。';
