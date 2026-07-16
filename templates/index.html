@@ -307,9 +307,13 @@ async function initFfmpeg() {
 
     ffmpeg = new FFmpeg();
     const coreBase = buildUnpkgUrl('@ffmpeg', 'core', '0.12.6', '/dist/esm');
+    const ffmpegBase = buildUnpkgUrl('@ffmpeg', 'ffmpeg', '0.12.10', '/dist/esm');
     await ffmpeg.load({
       coreURL: await toBlobURL(coreBase + '/ffmpeg-core.js', 'text/javascript'),
       wasmURL: await toBlobURL(coreBase + '/ffmpeg-core.wasm', 'application/wasm'),
+      // Worker 腳本規定一定要跟頁面同源，不能直接指向外部 CDN 網址，
+      // 所以一樣要用 toBlobURL 轉成瀏覽器可接受的同源 blob 網址。
+      classWorkerURL: await toBlobURL(ffmpegBase + '/worker.js', 'text/javascript'),
     });
 
     ffmpegReady = true;
