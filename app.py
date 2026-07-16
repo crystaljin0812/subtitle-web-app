@@ -9,8 +9,7 @@ import subprocess
 import tempfile
 import traceback
 
-# 這裡新增了 make_response
-from flask import Flask, render_template, request, send_file, jsonify, abort, make_response
+from flask import Flask, render_template, request, send_file, jsonify, abort
 from werkzeug.utils import secure_filename
 
 try:
@@ -28,21 +27,33 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # ---------- 檔案大小限制 ----------
-app.config['MAX_CONTENT_LENGTH'] = 300 * 1024 * 1024  # 300MB
+# 現在瀏覽器端會先用 ffmpeg.wasm 把影片壓縮成小體積音訊再上傳，
+# 正常情況下傳到這裡的檔案應該都只有幾 MB～幾十 MB。
+# 這個上限主要是「備援保護」：當使用者瀏覽器不支援/壓縮失敗、退回直接上傳原始影片時，
+# 避免真的誇張大的檔案把 Render 免費方案 512MB 記憶體塞爆。
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB
+
 
 @app.errorhandler(413)
 def file_too_large(e):
     return jsonify({
-        "error": "檔案太大了（上限 300MB）。建議先自行壓縮影片，或只擷取需要字幕的片段再上傳。"
+        "error": "檔案太大了（上限 1GB）。這通常代表瀏覽器端壓縮沒有成功、退回上傳原始影片，建議換個瀏覽器或先自行壓縮影片後再試一次。"
     }), 413
 
+
 # ---------- 工作狀態儲存 ----------
+# 用記憶體內的字典追蹤每個處理工作的進度。
+# 注意：這個做法只在 gunicorn 用單一 worker（沒有加 --workers 參數）時才會正確運作，
+# 因為多個 worker 是不同的行程，彼此記憶體不共享，狀態會對不起來。
+# 若之後想開多個 worker 處理更高流量，需要改成 Redis 之類的共用儲存。
 JOBS = {}
 JOBS_LOCK = threading.Lock()
+
 
 def set_job(job_id, **kwargs):
     with JOBS_LOCK:
         JOBS[job_id].update(kwargs)
+
 
 def get_job(job_id):
     with JOBS_LOCK:
@@ -50,6 +61,7 @@ def get_job(job_id):
 
 
 # ---------- 字幕處理核心工具函式 ----------
+
 def get_prompt(target_language):
     if target_language == "original":
         lang_instruction = "請保留音訊原本的語言，忠實呈現原始內容，不需要翻譯。"
@@ -70,6 +82,7 @@ def get_prompt(target_language):
   ]
 }}
 """
+
 
 SEGMENTS_SCHEMA = {
     "type": "object",
@@ -92,8 +105,10 @@ SEGMENTS_SCHEMA = {
 
 PUNCTUATION_CHARS = "。！？，、；：,.!?;:「」『』【】()（）《》〈〉—…～~"
 
+
 def strip_punctuation(text):
     return "".join(ch for ch in text if ch not in PUNCTUATION_CHARS)
+
 
 def split_long_segment(start, end, text, max_chars=14):
     text = text.strip()
@@ -109,6 +124,7 @@ def split_long_segment(start, end, text, max_chars=14):
     mid = start + duration * (len(left_text) / total_len if total_len else 0.5)
     return split_long_segment(start, mid, left_text, max_chars) + split_long_segment(mid, end, right_text, max_chars)
 
+
 def format_srt_timestamp(seconds):
     if seconds < 0:
         seconds = 0
@@ -117,6 +133,7 @@ def format_srt_timestamp(seconds):
     secs = int(seconds % 60)
     millis = int(round((seconds - int(seconds)) * 1000))
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
 
 def build_srt(all_segments, output_path):
     lines = []
@@ -133,6 +150,7 @@ def build_srt(all_segments, output_path):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
+
 def build_txt(all_segments, output_path):
     lines = []
     for start, end, text in all_segments:
@@ -143,11 +161,13 @@ def build_txt(all_segments, output_path):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
+
 def extract_audio(video_path, out_dir):
     audio_path = os.path.join(out_dir, "extracted_audio.mp3")
     cmd = ["ffmpeg", "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audio_path]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     return audio_path
+
 
 def get_audio_duration(audio_path):
     probe_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", audio_path]
@@ -162,12 +182,21 @@ def get_audio_duration(audio_path):
     try:
         return float(json.loads(result2.stdout)["streams"][0]["duration"]), True
     except Exception:
+        # 兩種方式都讀不到長度：回傳 False 讓呼叫端知道這是「猜測值」，而非真實時長
         return 0.0, False
 
+
 def split_audio_if_needed(audio_path, out_dir, chunk_seconds=600, job_id=None):
+    """
+    預設每段 10 分鐘（比原本的 2 分鐘更省來回次數，比舊版的 30 分鐘更能提供有意義的進度更新）。
+    若偵測不到真實時長，會用「保守估計」的長分鐘數切割，並在 job 狀態留下警告，
+    避免長影片被默默截斷而使用者毫無所知。
+    """
     duration, duration_known = get_audio_duration(audio_path)
 
     if not duration_known:
+        # 猜不到真實長度時，寧可高估也不要低估，避免內容被默默截斷。
+        # 這裡假設最長 4 小時；真的超過會在下面的迴圈自然繼續切下去到抓不出新內容為止。
         duration = 4 * 3600.0
         if job_id:
             set_job(job_id, warning="偵測不到音訊實際長度，已採用保守估計值處理，請確認產出字幕是否涵蓋整支影片。")
@@ -183,10 +212,12 @@ def split_audio_if_needed(audio_path, out_dir, chunk_seconds=600, job_id=None):
         cmd = ["ffmpeg", "-y", "-i", audio_path, "-ss", str(start), "-t", str(chunk_seconds),
                "-ac", "1", "-ar", "16000", "-b:a", "64k", chunk_path]
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # 如果切出來的片段幾乎沒有內容（代表已經超過音訊實際長度），就不用再往下切了
         if os.path.getsize(chunk_path) < 2000:
             break
         chunks.append((chunk_path, float(start)))
     return chunks
+
 
 def transcribe_and_translate(client, model_name, audio_path, prompt):
     uploaded_file = client.files.upload(file=audio_path)
@@ -210,11 +241,12 @@ def transcribe_and_translate(client, model_name, audio_path, prompt):
 
 
 # ---------- 背景處理主流程 ----------
+
 def run_job(job_id, video_path, api_key, target_language, output_format):
     try:
         set_job(job_id, status="processing", progress=2, message="正在從影片擷取音訊...")
 
-        model_name = "gemini-3.5-flash" # 確保使用的是 1.5 版本
+        model_name = "gemini-3.5-flash"
         client = genai.Client(api_key=api_key.strip())
         prompt = get_prompt(target_language)
 
@@ -269,13 +301,11 @@ def run_job(job_id, video_path, api_key, target_language, output_format):
 
 
 # ---------- Flask 路由 ----------
+
 @app.route("/", methods=["GET"])
 def index():
-    # 這裡加上了 Security Headers 來允許瀏覽器前端使用 ffmpeg.wasm
-    resp = make_response(render_template("index.html"))
-    resp.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
-    resp.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
-    return resp
+    return render_template("index.html")
+
 
 @app.route("/process", methods=["POST"])
 def process_video():
@@ -297,6 +327,7 @@ def process_video():
     job_id = uuid.uuid4().hex
 
     safe_filename = secure_filename(video_file.filename) or f"upload_{job_id}"
+    # 用 job_id 當前綴，避免多人同時使用時檔名互相覆蓋
     video_path = os.path.join(UPLOAD_FOLDER, f"{job_id}_{safe_filename}")
     video_file.save(video_path)
 
@@ -312,13 +343,16 @@ def process_video():
 
     return jsonify({"job_id": job_id})
 
+
 @app.route("/status/<job_id>", methods=["GET"])
 def job_status(job_id):
     job = get_job(job_id)
     if not job:
         return jsonify({"error": "找不到這個工作編號"}), 404
+    # 不把完整檔案路徑洩漏給前端，只回傳必要資訊
     safe = {k: v for k, v in job.items() if k != "output_path"}
     return jsonify(safe)
+
 
 @app.route("/download/<job_id>", methods=["GET"])
 def download_result(job_id):
@@ -327,6 +361,7 @@ def download_result(job_id):
         abort(404)
     return send_file(job["output_path"], as_attachment=True,
                       download_name=job.get("download_name", "subtitles.srt"))
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

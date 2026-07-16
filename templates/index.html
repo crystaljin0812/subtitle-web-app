@@ -251,8 +251,12 @@
   </div>
 </div>
 
-<script type="module">
-// 取得所有需要的 DOM 元素
+<script>
+// 注意：這裡故意不寫成 type="module"，也刻意不用寫死版本號的 "package@1.2.3" 這種寫法
+// （那種格式太像 email，經過某些工具複製貼上很容易被自動置換成亂碼），
+// 改用「動態 import()」搭配版本字串變數組出網址，並且整段包在 try/catch 裡：
+// 就算這個外部壓縮引擎載入失敗，也絕對不會影響到下面表單送出、進度顯示等其他功能。
+
 const form = document.getElementById('subtitleForm');
 const videoInput = document.getElementById('video_file');
 const fileStatus = document.getElementById('fileStatus');
@@ -275,45 +279,46 @@ const downloadLink = document.getElementById('downloadLink');
 let pollTimer = null;
 let autoDownloaded = false;
 
-// ---------- 瀏覽器端 ffmpeg.wasm：預先在背景載入 ----------
+// ---------- 瀏覽器端壓縮引擎：用動態 import()，失敗絕對不會影響其他功能 ----------
 let ffmpeg = null;
 let ffmpegReady = false;
 let ffmpegLoadFailed = false;
+let fetchFileFn = null;
 
-// 宣告全域變數供後續使用
-let fetchFile, toBlobURL;
+function buildUnpkgUrl(scope, pkg, version, path) {
+  // 用字串組合而非寫死在同一行，避免看起來像 email 的樣式被誤判置換
+  const versionPart = version ? ('@' + version) : '';
+  return 'https://unpkg.com/' + scope + '/' + pkg + versionPart + path;
+}
 
 async function initFfmpeg() {
   try {
-    // 透過字串相加，完美避開 Cloudflare Email 亂碼防護機制
-    const ffmpegUrl = 'https://unpkg.com/@ffmpeg/ffmpeg' + '@' + '0.12.10/dist/esm/index.js';
-    const utilUrl   = 'https://unpkg.com/@ffmpeg/util'   + '@' + '0.12.2/dist/esm/index.js';
-    
-    // 動態載入模組
-    const ffmpegModule = await import(ffmpegUrl);
-    const utilModule   = await import(utilUrl);
-    
-    const FFmpeg = ffmpegModule.FFmpeg;
-    fetchFile = utilModule.fetchFile;
-    toBlobURL = utilModule.toBlobURL;
+    const ffmpegModUrl = buildUnpkgUrl('@ffmpeg', 'ffmpeg', '0.12.10', '/dist/esm/index.js');
+    const utilModUrl = buildUnpkgUrl('@ffmpeg', 'util', '0.12.1', '/dist/esm/index.js');
+
+    const [ffmpegMod, utilMod] = await Promise.all([
+      import(/* webpackIgnore: true */ ffmpegModUrl),
+      import(/* webpackIgnore: true */ utilModUrl),
+    ]);
+
+    const { FFmpeg } = ffmpegMod;
+    const { fetchFile, toBlobURL } = utilMod;
+    fetchFileFn = fetchFile;
 
     ffmpeg = new FFmpeg();
-    
-    // 核心引擎必須指向 @ffmpeg/core 
-    const baseURL = 'https://unpkg.com/@ffmpeg/core' + '@' + '0.12.6/dist/esm';
-    
+    const coreBase = buildUnpkgUrl('@ffmpeg', 'core', '0.12.6', '/dist/esm');
     await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+      coreURL: await toBlobURL(coreBase + '/ffmpeg-core.js', 'text/javascript'),
+      wasmURL: await toBlobURL(coreBase + '/ffmpeg-core.wasm', 'application/wasm'),
     });
-    
+
     ffmpegReady = true;
-    fileStatus.textContent = videoInput.files[0]
-      ? `已選擇：${videoInput.files[0].name}（壓縮引擎已就緒）`
-      : '壓縮引擎已就緒';
+    if (videoInput.files[0]) {
+      fileStatus.textContent = `已選擇：${videoInput.files[0].name}（壓縮引擎已就緒）`;
+    }
   } catch (err) {
     ffmpegLoadFailed = true;
-    console.error('ffmpeg.wasm 載入失敗，將改為直接上傳原始檔案', err);
+    console.error('壓縮引擎載入失敗，將改為直接上傳原始檔案（功能仍可正常使用）', err);
   }
 }
 initFfmpeg();
@@ -322,7 +327,7 @@ videoInput.addEventListener('change', () => {
   const f = videoInput.files[0];
   if (!f) { fileStatus.textContent = '尚未選擇檔案'; return; }
   const sizeMB = (f.size / (1024 * 1024)).toFixed(1);
-  fileStatus.textContent = `已選擇：${f.name}（${sizeMB} MB）` + (ffmpegReady ? '' : ' 壓縮引擎準備中...');
+  fileStatus.textContent = `已選擇：${f.name}（${sizeMB} MB）` + (ffmpegReady ? '' : '　壓縮引擎準備中...');
 });
 
 function setStageState(row, state) {
@@ -377,7 +382,7 @@ async function compressInBrowser(file) {
   });
 
   const inputName = 'input_' + file.name.replace(/[^a-zA-Z0-9.]/g, '_');
-  await ffmpeg.writeFile(inputName, await fetchFile(file));
+  await ffmpeg.writeFile(inputName, await fetchFileFn(file));
   await ffmpeg.exec(['-i', inputName, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '64k', 'output.mp3']);
   const data = await ffmpeg.readFile('output.mp3');
 
@@ -417,7 +422,7 @@ function uploadWithProgress(formData) {
   });
 }
 
-// ---------- 階段三：伺服器端輪詢 ----------
+// ---------- 階段三：伺服器端輪詢（沿用原本邏輯）----------
 function pollStatus(jobId) {
   setStageState(stageServer, 'active');
   const newUrl = `${window.location.pathname}?job=${jobId}`;
